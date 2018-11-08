@@ -1,5 +1,7 @@
 import sys
 import os
+import random
+import numpy as np
 from enum import Enum
 from reportlab.pdfgen import canvas
 
@@ -16,6 +18,10 @@ def warn(string):
 def error(string):
     print ('[ERROR]:' + string)
 
+def debug(string):
+    if debug_flag:
+        print('[DEBUG]:'+string)
+
 class Difficulty(Enum):
     EASY=1
     MEDIUM=2
@@ -26,11 +32,11 @@ class Bounds:
         if difficulty == Difficulty.EASY:
             self.max_variables = 3
             self.use_inequality=False
-            self.max_coefficient=3
+            self.max_coefficient=2
             self.max_constant=10
         if difficulty == Difficulty.MEDIUM:
             self.max_variables = 5
-            self.use_inequality=True
+            self.use_inequality=False
             self.max_coefficient=3
             self.max_constant=100
         if difficulty == Difficulty.HARD:
@@ -53,7 +59,38 @@ class Hint:
         self.op=op
         self.rhs=rhs
         self.fail=False
+    def sameAs(self, hint):
+        # we compare the two such that lhs1 == lhs2 or lhs1==rhs2
+        # and rhs1=rhs2 or rhs1=lhs2 and op1=op2.
+        # we also look for cases where one hint is a reduction of the other.
+        # Eg: x+y=z and 2x=2z-2y are the same hint.
+        # Our procedure is bring everything over to the LHS 
+        # and then to check if they are equal to a scale factor.
+
+        t_us = list()
+        for i in range(len(self.lhs)):
+            t_us.append(self.lhs[i]-self.rhs[i])
+        t_them = list()
+        for i in range(len(hint.lhs)):
+            t_them.append(hint.lhs[i]-hint.rhs[i])
+
+        # first non-zero denominator determines scale factor
+        i=0
+        while t_us[i] == 0 and i < len(t_us):
+            i+=1
+        if i < len(t_us):
+            scale_factor=t_them[i]/t_us[i]
+            for i in range (len(t_us)):
+                if t_us[i]==0 and t_us[i]!=0:
+                    return False
+                elif t_us[i]!=0:
+                    if t_them[i]/t_us[i] != scale_factor:
+                        return False
+
+        return True
+
     def validate(self):
+        self.fail=False
         # make sure the hint is not inconsistent by itself
         # Check 1: at least two different variables appear in equation
         num_var=0
@@ -73,7 +110,7 @@ class Hint:
         # Check 2: verify that if only two variable occurrences were counted,
         # then they are not the same variable
         if num_var == 2:
-            for idx in len(self.lhs):
+            for idx in range(len(self.lhs)):
                 if self.lhs[idx] !=0 and self.rhs[idx]!=0:
                     self.fail=True
 
@@ -82,7 +119,30 @@ class Hint:
         if len(self.lhs)==0 or len(self.rhs)==0:
             self.fail=True
 
-        return self.fail
+        # Check 4: we need the equation to be non trivial
+        # in that -- after simplification -- it should not boil down
+        # to a variable becoming equal to 0. For eg:
+        # if we had x+y=x, then this will imply y=0.
+        # if we had x+2y = 2x+3y, then again this implies x+y=0
+        # and this in turn means x=y=0.
+        # In order to check for this, we basically move all non-zero
+        # coefficients to lhs and see that we have at least two variables
+        # with different signs of coefficients.
+        t_lhs=list()
+        for idx in range(len(self.rhs)):
+            t_lhs.append(self.lhs[idx]-self.rhs[idx])
+
+        pve=False
+        nve=False
+        for idx in range(len(t_lhs)):
+            if t_lhs[idx] > 0:
+                pve=True
+            if t_lhs[idx] < 0:
+                nve=True
+        if (not pve) or (not nve):
+            self.fail=True
+
+        return not self.fail
 
 class Question:
     def __init__(self, bounds):
@@ -91,6 +151,65 @@ class Question:
         # first build up a system of linear equations 
         # using the allowed variables and coefficient limits
         # and verify that the system is consistent
+
+        # step 1: determine the number of variables 
+        num_vars = self.makeNumVars(bounds)
+
+        # for num_vars, how many hints do we need?
+        # this would depend on the linear equations we put together of course
+        # but for now, assume hints are 1 less than variables
+        num_hints = num_vars - 1
+
+        i=0
+        while (i<num_hints):
+            # make a hint
+            # a hint is <LE> <op> <LE> where
+            # <LE> is a linear expression and <op> is '=' or '<' or '>'
+            # note: we can not have '<=' or '>=' or '!=' since we can not
+            # depict this with a balance.
+            # Each <LE> can have upto num_vars with coefficients over the bounds
+            coeffs_lhs=list()
+            for j in range (0, num_vars):
+                coeffs_lhs.append(random.randint(0, bounds.getMaxCoefficient()))
+            coeffs_rhs=list()
+            for j in range (0, num_vars):
+                coeffs_rhs.append(random.randint(0, bounds.getMaxCoefficient()))
+            if bounds.allowInequality():
+                op_r = random.randint(0,3)
+                if op_r == 0:
+                    op = '='
+                if op_r == 1:
+                    op = '>'
+                if op_r == 2:
+                    op = '<'
+            else:
+                op = '='
+
+            hint = Hint(coeffs_lhs, op, coeffs_rhs)
+            if hint.validate() and self.uniqueHint(hint):
+                if debug_flag:
+                    hint_str=''
+                    for idx in range(len(coeffs_lhs)):
+                        hint_str+=str(coeffs_lhs[idx]) + ' '
+                    hint_str+=op + ' '
+                    for idx in range(len(coeffs_rhs)):
+                        hint_str+=str(coeffs_rhs[idx]) + ' '
+                    debug(hint_str)
+
+                self.addHint(hint)
+                i+=1
+
+    def uniqueHint(self, new_hint):
+        for hint in self.hints:
+            if new_hint.sameAs(hint):
+                return False
+        return True
+
+    def makeNumVars(self, bounds):
+        nv = bounds.getMaxVariables()
+        if nv <= 3:
+            return 3
+        return random.randint(3, nv)
 
     def addHint(self, hint):
         self.hints.append(hint)
@@ -128,13 +247,18 @@ class BB:
         i=0
         while i<self.num_questions: 
             q=Question(self.bounds)
-            if q.validate():
+            if q.validate() and self.uniqueQuestions():
+                debug('Generated Question ' + str(i))
                 self.questions.append(q)
                 i+=1
 
     def build(self):
         info('Building PDF ...')
 
+
+    def uniqueQuestions(self):
+        # verify that we don't have any repeat questions!
+        return True
     
 
 def main(difficulty_level, output_name):
@@ -184,6 +308,7 @@ def processArgs(args, mandatory_arg_names):
     return [difficulty, output_name]
 
 if __name__ == '__main__':
+    debug_flag=True
     args = sys.argv
     mandatory_arg_names = list([('-level', 'Difficulty level (1, 2 or 3)'),('-output', 'Valid Writeable File Path Name of Ooutput PDF File')])
     NUM_MANDATORY_ARGS = 2*len(mandatory_arg_names)
