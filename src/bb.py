@@ -4,6 +4,15 @@ import random
 import numpy as np
 from enum import Enum
 from reportlab.pdfgen import canvas
+from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.pagesizes import letter, landscape
+
+from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+
 
 #c = canvas.Canvas("hello.pdf")
 #c.drawString(100, 750, "Welcome to PDF generation from Python!")
@@ -402,6 +411,33 @@ class BB:
 
     def build(self):
         info('Building PDF ...')
+        doc = SimpleDocTemplate("form_letter.pdf",pagesize=landscape(letter),
+                        rightMargin=72,leftMargin=72,
+                        topMargin=72,bottomMargin=18)
+
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name='Justify', alignment=TA_JUSTIFY))
+
+        Story=[]
+        logo = "../images/balance2.jpg"
+
+        # We really want to scale the image to fit in a box and keep proportions.
+        im = Image(logo, 5.5*inch, 0.75*inch)
+        Story.append(im)
+
+        #ptext = '<font size=12>Some text</font>' 
+        #Story.append(Paragraph(ptext, styles["Normal"]))
+
+        ptext = '''
+        <seq>. </seq>Some Text<br/>
+        <seq>. </seq>Some more test Text
+        '''
+        Story.append(Paragraph(ptext, styles["Bullet"]))
+
+        ptext='<bullet>&bull;</bullet>Some Text'
+        Story.append(Paragraph(ptext, styles["Bullet"]))
+
+        doc.build(Story)
 
 
     def uniqueQuestions(self):
