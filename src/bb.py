@@ -10,17 +10,17 @@ from reportlab.pdfgen import canvas
 #c.save()
 
 def info(string):
-    print ('[INFO]:' + string)
+    print ('[INFO]:' + str(string))
 
 def warn(string):
-    print ('[WARN]:' + string)
+    print ('[WARN]:' + str(string))
 
 def error(string):
-    print ('[ERROR]:' + string)
+    print ('[ERROR]:' + str(string))
 
 def debug(string):
     if debug_flag:
-        print('[DEBUG]:'+string)
+        print('[DEBUG]:'+str(string))
 
 class Difficulty(Enum):
     EASY=1
@@ -29,18 +29,22 @@ class Difficulty(Enum):
 
 class Bounds:
     def __init__(self, difficulty):
+        self.difficulty = difficulty
         if difficulty == Difficulty.EASY:
             self.max_variables = 3
+            self.max_variable_value=3
             self.use_inequality=False
             self.max_coefficient=2
             self.max_constant=10
         if difficulty == Difficulty.MEDIUM:
             self.max_variables = 5
+            self.max_variable_value=3
             self.use_inequality=False
             self.max_coefficient=3
             self.max_constant=100
         if difficulty == Difficulty.HARD:
             self.max_variables = 7
+            self.max_variable_value=3
             self.use_inequality=True
             self.max_coefficient=3
             self.max_constant=1000
@@ -48,13 +52,16 @@ class Bounds:
         return self.use_inequality
     def getMaxVariables(self):
         return self.max_variables
+    def getMaxVariableValue(self):
+        return self.max_variable_value
     def getMaxCoefficient(self):
         return self.max_coefficient
     def getMaxConstant(self):
         return self.max_numeric_constant
 
 class Hint:
-    def __init__(self, lhs, op, rhs):
+    def __init__(self, vars, lhs, op, rhs):
+        self.vars=vars
         self.lhs=lhs
         self.op=op
         self.rhs=rhs
@@ -92,6 +99,23 @@ class Hint:
     def validate(self):
         self.fail=False
         # make sure the hint is not inconsistent by itself
+        # Check 0: LHS op RHS is correct
+        lhs_sum=0
+        for i in range(len(self.lhs)):
+            lhs_sum += self.lhs[i]*self.vars[i]
+        rhs_sum=0
+        for i in range(len(self.rhs)):
+            rhs_sum += self.rhs[i]*self.vars[i]
+        if self.op == '=':
+            if lhs_sum != rhs_sum:
+                return False
+        if self.op == '<':
+            if lhs_sum >= rhs_sum:
+                return False
+        if self.op == '>':
+            if lhs_sum <= rhs_sum:
+                return False
+
         # Check 1: at least two different variables appear in equation
         num_var=0
         for item in self.lhs:
@@ -144,8 +168,18 @@ class Hint:
 
         return not self.fail
 
+    def print(self):
+        hint_str=''
+        for idx in range(len(self.lhs)):
+            hint_str+=str(self.lhs[idx]) + ' '
+        hint_str+=self.op + ' '
+        for idx in range(len(self.rhs)):
+            hint_str+=str(self.rhs[idx]) + ' '
+        return hint_str
+
 class Question:
     def __init__(self, bounds):
+        self.bounds= bounds
         self.hints=list()
         self.choices=list()
         # first build up a system of linear equations 
@@ -154,6 +188,13 @@ class Question:
 
         # step 1: determine the number of variables 
         num_vars = self.makeNumVars(bounds)
+        # First we create some values for the variables
+        self.vars=list()
+        
+        debug('Variable values of the question')
+        for j in range (0, num_vars):
+            self.vars.append(random.randint(1, bounds.getMaxVariableValue()))
+            debug(self.vars[j])
 
         # for num_vars, how many hints do we need?
         # this would depend on the linear equations we put together of course
@@ -168,36 +209,79 @@ class Question:
             # note: we can not have '<=' or '>=' or '!=' since we can not
             # depict this with a balance.
             # Each <LE> can have upto num_vars with coefficients over the bounds
-            coeffs_lhs=list()
-            for j in range (0, num_vars):
-                coeffs_lhs.append(random.randint(0, bounds.getMaxCoefficient()))
-            coeffs_rhs=list()
-            for j in range (0, num_vars):
-                coeffs_rhs.append(random.randint(0, bounds.getMaxCoefficient()))
-            if bounds.allowInequality():
-                op_r = random.randint(0,3)
-                if op_r == 0:
-                    op = '='
-                if op_r == 1:
-                    op = '>'
-                if op_r == 2:
-                    op = '<'
-            else:
-                op = '='
 
-            hint = Hint(coeffs_lhs, op, coeffs_rhs)
+            hint = self.makeHint()
+
             if hint.validate() and self.uniqueHint(hint):
                 if debug_flag:
-                    hint_str=''
-                    for idx in range(len(coeffs_lhs)):
-                        hint_str+=str(coeffs_lhs[idx]) + ' '
-                    hint_str+=op + ' '
-                    for idx in range(len(coeffs_rhs)):
-                        hint_str+=str(coeffs_rhs[idx]) + ' '
-                    debug(hint_str)
+                    debug(hint.print())
 
                 self.addHint(hint)
                 i+=1
+    
+    def makeHint(self):
+        if self.bounds.difficulty == Difficulty.EASY:
+            return self.makeHintEasy()
+        else:
+            return self.makeHintGeneric()
+
+    def makeHintEasy(self):
+        # Easy hints are basically one variable each
+        num_vars = len(self.vars)
+        var1_idx=random.randint(0,num_vars-1)
+        var2_idx=random.randint(0,num_vars-1)
+        while (var2_idx == var1_idx):
+            var2_idx=random.randint(0,num_vars-1)
+        # we got two different variables
+        # coefficients are assigned as inverse of variable values
+        # eg: if variables have values (2 and 3), coefficients are (3 and 2).
+        # this ensures balanced equations since easy mode op is always '='
+        coeffs_lhs=list()
+        coeffs_rhs=list()
+
+        for i in range(num_vars):
+            coeffs_lhs.append(0)
+            coeffs_rhs.append(0)
+
+        coeffs_lhs[var1_idx]=self.vars[var2_idx]
+        coeffs_rhs[var2_idx]=self.vars[var1_idx]
+        return Hint(self.vars, coeffs_lhs, '=', coeffs_rhs)
+        
+
+    def makeHintGeneric(self):
+        coeffs_lhs=list()
+        lhs_sum=0
+        num_vars = len(self.vars)
+        for j in range (0, num_vars):
+            coeffs_lhs.append(random.randint(0, self.bounds.getMaxCoefficient()))
+            lhs_sum+=coeffs_lhs[j]*self.vars[j]
+        if self.bounds.allowInequality():
+            op_r = random.randint(0,3)
+            if op_r == 0:
+                op = '='
+            if op_r == 1:
+                op = '>'
+            if op_r == 2:
+                op = '<'
+        else:
+            op = '='
+
+        rhs_sum=0
+        force_z=False
+        coeffs_rhs=list()
+        for j in range (0, num_vars):
+            if not force_z:
+                coeffs_rhs.append(random.randint(0, self.bounds.getMaxCoefficient()))
+            else:
+                coeffs_rhs.append(0)
+            rhs_sum += coeffs_rhs[j]*self.vars[j]
+            if op == '=' and lhs_sum==rhs_sum:
+                # remaining coefficients must all be 0
+                force_z=True
+
+        hint = Hint(self.vars, coeffs_lhs, op, coeffs_rhs)
+        return hint
+
 
     def uniqueHint(self, new_hint):
         for hint in self.hints:
@@ -242,8 +326,8 @@ class BB:
     
     def assemble(self):
         info('Assembling questions ...')
-        self.num_questions = self.defineNumQuestions(difficulty)
-        self.bounds = Bounds(difficulty)
+        self.num_questions = self.defineNumQuestions(self.difficulty)
+        self.bounds = Bounds(self.difficulty)
         i=0
         while i<self.num_questions: 
             q=Question(self.bounds)
