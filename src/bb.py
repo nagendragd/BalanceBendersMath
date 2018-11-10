@@ -36,18 +36,21 @@ class Bounds:
             self.use_inequality=False
             self.max_coefficient=2
             self.max_constant=10
+            self.num_choices=4
         if difficulty == Difficulty.MEDIUM:
             self.max_variables = 5
             self.max_variable_value=3
             self.use_inequality=False
             self.max_coefficient=3
             self.max_constant=100
+            self.num_choices=4
         if difficulty == Difficulty.HARD:
             self.max_variables = 7
             self.max_variable_value=3
             self.use_inequality=True
             self.max_coefficient=3
             self.max_constant=1000
+            self.num_choices=4
     def allowInequality(self):
         return self.use_inequality
     def getMaxVariables(self):
@@ -96,6 +99,33 @@ class Hint:
 
         return True
 
+    def validateChoice(self):
+        self.fail=False
+
+        # Check 1: at least two different variables appear in equation
+        num_lhs=0
+        for item in self.lhs:
+            if item != 0:
+                num_lhs+=1
+        num_rhs=0
+        for item in self.rhs:
+            if item != 0:
+                num_rhs += 1
+        if num_lhs == 0 or num_rhs == 0:
+            self.fail=True
+
+        # previous rule did not check that the same variable may have occurred 
+        # in both lhs and rhs and effectively would have been just one variable.
+        # eg: 2x = 3x
+        # Check 2: verify that if only two variable occurrences were counted,
+        # then they are not the same variable
+        if num_lhs + num_rhs == 2:
+            for idx in range(len(self.lhs)):
+                if self.lhs[idx] !=0 and self.rhs[idx]!=0:
+                    self.fail=True
+
+        return not self.fail
+
     def validate(self):
         self.fail=False
         # make sure the hint is not inconsistent by itself
@@ -116,34 +146,7 @@ class Hint:
             if lhs_sum <= rhs_sum:
                 return False
 
-        # Check 1: at least two different variables appear in equation
-        num_var=0
-        for item in self.lhs:
-            if item != 0:
-                num_var+=1
-        if num_var < 2:
-            for item in self.rhs:
-                if item != 0:
-                    num_var += 1
-        if num_var < 2:
-            self.fail=True
-
-        # previous rule did not check that the same variable may have occurred 
-        # in both lhs and rhs and effectively would have been just one variable.
-        # eg: 2x = 3x
-        # Check 2: verify that if only two variable occurrences were counted,
-        # then they are not the same variable
-        if num_var == 2:
-            for idx in range(len(self.lhs)):
-                if self.lhs[idx] !=0 and self.rhs[idx]!=0:
-                    self.fail=True
-
-        # Check 3: since we do not allow negative numbers (yet),
-        # we need variables on either side of the balance.
-        if len(self.lhs)==0 or len(self.rhs)==0:
-            self.fail=True
-
-        # Check 4: we need the equation to be non trivial
+        # Check 1: we need the equation to be non trivial
         # in that -- after simplification -- it should not boil down
         # to a variable becoming equal to 0. For eg:
         # if we had x+y=x, then this will imply y=0.
@@ -166,6 +169,9 @@ class Hint:
         if (not pve) or (not nve):
             self.fail=True
 
+        res = self.validateChoice()
+        self.fail = not res
+
         return not self.fail
 
     def print(self):
@@ -181,6 +187,7 @@ class Question:
     def __init__(self, bounds):
         self.bounds= bounds
         self.hints=list()
+        self.num_choices = bounds.num_choices
         self.choices=list()
         # first build up a system of linear equations 
         # using the allowed variables and coefficient limits
@@ -212,12 +219,69 @@ class Question:
 
             hint = self.makeHint()
 
-            if hint.validate() and self.uniqueHint(hint):
+            if hint.validate() and self.unique(self.hints, hint):
                 if debug_flag:
                     debug(hint.print())
 
                 self.addHint(hint)
                 i+=1
+
+        # now that we have constructed our hints,
+        # we add 4 choices of which one or more may be correct!
+        # The only rules we have are:
+        # 1. no hint should repeat as a choice!
+        # 2. no two choices must be the same!
+        # 3. at least one choice should be correct!
+        debug('Printing Choices..')
+        correct_star=''
+        nc=0
+        found_one_correct=False
+        while (nc < self.num_choices): 
+            if (nc==self.num_choices-1) and not found_one_correct:
+                choice = self.makeHint()
+            else:
+                choice = self.makeChoice()
+            if choice.validateChoice() and self.unique(self.choices, choice) and self.unique(self.hints, choice):
+                if choice.validate():
+                    found_one_correct=True
+                    correct_star='*'
+                else:
+                    correct_star=''
+                if nc == self.num_choices-1:
+                    if found_one_correct:
+                        self.choices.append(choice)
+                        if debug_flag:
+                            debug(correct_star+choice.print())
+                        nc+=1
+                else:
+                    self.choices.append(choice)
+                    if debug_flag:
+                        debug(correct_star+choice.print())
+                    nc+=1
+
+    def makeChoiceEasy(self):
+        # Easy choices are basically one variable each
+        num_vars = len(self.vars)
+        var1_idx=random.randint(0,num_vars-1)
+        var2_idx=random.randint(0,num_vars-1)
+        while (var2_idx == var1_idx):
+            var2_idx=random.randint(0,num_vars-1)
+        coeffs_lhs=list()
+        coeffs_rhs=list()
+
+        for i in range(num_vars):
+            coeffs_lhs.append(0)
+            coeffs_rhs.append(0)
+
+        coeffs_lhs[var1_idx]=random.randint(1, self.bounds.getMaxCoefficient())
+        coeffs_rhs[var2_idx]=random.randint(1, self.bounds.getMaxCoefficient())
+        return Hint(self.vars, coeffs_lhs, '=', coeffs_rhs)
+
+    def makeChoice(self):
+        if self.bounds.difficulty == Difficulty.EASY:
+            return self.makeChoiceEasy()
+        else:
+            return self.makeHintGeneric()
     
     def makeHint(self):
         if self.bounds.difficulty == Difficulty.EASY:
@@ -283,8 +347,8 @@ class Question:
         return hint
 
 
-    def uniqueHint(self, new_hint):
-        for hint in self.hints:
+    def unique(self, hint_list, new_hint):
+        for hint in hint_list:
             if new_hint.sameAs(hint):
                 return False
         return True
