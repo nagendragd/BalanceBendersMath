@@ -2,13 +2,13 @@ import sys
 import os
 import random
 import numpy as np
+from pathlib import Path
 from enum import Enum
 from reportlab.pdfgen import canvas
 from reportlab.lib.enums import TA_JUSTIFY
 from reportlab.lib.pagesizes import letter, landscape
 
 from reportlab.lib.enums import TA_JUSTIFY
-from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -78,6 +78,17 @@ class Hint:
         self.op=op
         self.rhs=rhs
         self.fail=False
+    def getLHSCoeffTotal(self):
+        t=0
+        for i in self.lhs:
+            t+=i
+        return t
+    def getRHSCoeffTotal(self):
+        t=0
+        for i in self.rhs:
+            t+=i
+        return t
+
     def sameAs(self, hint):
         # we compare the two such that lhs1 == lhs2 or lhs1==rhs2
         # and rhs1=rhs2 or rhs1=lhs2 and op1=op2.
@@ -375,6 +386,58 @@ class Question:
     def validate(self):
         return True
 
+class QuestionDisplay:
+    def __init__(self, question):
+        self.height = self.questionHeight(question)
+
+    def shapeHeight(self):
+        return 29 # this should be better handled based on the shape images
+    def shapeWidth(self):
+        return 29 # this should be better handled based on the shape images
+    def scaleHeight(self):
+        return 90
+    def hintHeight(self, hint):
+        height=0
+        num_lhs = hint.getLHSCoeffTotal()
+        num_rhs = hint.getRHSCoeffTotal()
+        # these many shapes have to be drawn.
+        # assume we can draw 4 shapes per row on each side of the scale
+        num_shapes_per_row=4
+        num_lhs_rows = num_lhs/num_shapes_per_row
+        num_rhs_rows = num_rhs/num_shapes_per_row
+        max_rows=num_lhs_rows
+        if max_rows<num_rhs_rows:
+            max_rows=num_rhs_rows
+        height += max_rows * self.shapeHeight()
+
+        # add base scale height
+        height += self.scaleHeight()
+
+    def textHeight(self):
+        return 20
+
+    def bufferHeight(self):
+        return 20
+
+    def questionHeight(self, question):
+        # question height depends on how many rows of shapes
+        # have to be shown.
+        # Question comprises of hints + choices
+        # we use a box model for each hint and each choice. 
+        # we can optimize later and trim white space
+        height=0
+        height += self.textHeight()
+        height += self.bufferHeight()
+        for hint in question.hints:
+            height += self.hintHeight(self, hint)
+            height += self.bufferHeight()
+        return height
+
+    def getTextYOffset(self):
+        return self.height - self.textHeight()
+
+
+
 class BB:
     def __init__(self, difficulty, output_name):
         self.difficulty=difficulty
@@ -409,35 +472,131 @@ class BB:
                 self.questions.append(q)
                 i+=1
 
+
     def build(self):
         info('Building PDF ...')
-        doc = SimpleDocTemplate("form_letter.pdf",pagesize=landscape(letter),
-                        rightMargin=72,leftMargin=72,
-                        topMargin=72,bottomMargin=18)
+        self.page_idx=-1
 
-        styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='Justify', alignment=TA_JUSTIFY))
+        bal = "../images/balance2.jpg"
+        im = Image(bal, 5.5*inch, 0.75*inch)
+        c_shape = "../images/circle.jpg"
+        cir = Image(c_shape, 0.4*inch, 0.4*inch)
+        s_shape = "../images/square.jpg"
+        squ = Image(s_shape, 0.4*inch, 0.4*inch)
+        p_shape = "../images/pentagon.jpg"
+        pen = Image(p_shape, 0.4*inch, 0.4*inch)
 
-        Story=[]
-        logo = "../images/balance2.jpg"
+        c = canvas.Canvas("hello.pdf", pagesize=letter)
+        c.setFont('Helvetica', 14)
+        c.drawString(100, 800, 'This is so Cool!')
+        im.drawOn(c, 100, 650)
+        cir.drawOn(c,130, 704)
+        squ.drawOn(c,170, 704)
+        pen.drawOn(c,210, 704)
+        cir.drawOn(c,130, 733)
+        squ.drawOn(c,170, 733)
+        pen.drawOn(c,199, 733)
+        c.save()
 
-        # We really want to scale the image to fit in a box and keep proportions.
-        im = Image(logo, 5.5*inch, 0.75*inch)
-        Story.append(im)
+        if Path(self.output_name).exists():
+            warn('File: ' + self.output_name + ' already exists')
+            if os.access(self.output_name, os.W_OK)==False:
+                error('File: ' + self.output_name + ' can not be written to!')
+                sys.exit()
+        else:
+            # check if directory is writeable
+            dir_name = os.path.dirname(self.output_name)
+            if dir_name is None or dir_name=='':
+                dir_name='.'
+            if Path(dir_name).exists==False:
+                error ('Invalid directory path: ' + dir_name)
+                sys.exit()
+            if os.access(dir_name, os.W_OK) == False:
+                error('Directory: ' + dir_name +  ' can not be written to!')
+                sys.exit()
 
-        #ptext = '<font size=12>Some text</font>' 
-        #Story.append(Paragraph(ptext, styles["Normal"]))
+        # Now we should be ok to write to the output.
+        c = canvas.Canvas(self.output_name, pagesize=letter)
+        c.setFont('Helvetica', 14)
+        self.pageInit()
+        t = 'Enjoy your ' + self.toDifficultyStr(self.difficulty) + ' difficulty puzzles'
 
-        ptext = '''
-        <seq>. </seq>Some Text<br/>
-        <seq>. </seq>Some more test Text
-        '''
-        Story.append(Paragraph(ptext, styles["Bullet"]))
+        self.writeText2PDF(c, t)
 
-        ptext='<bullet>&bull;</bullet>Some Text'
-        Story.append(Paragraph(ptext, styles["Bullet"]))
+        for i in range (0, self.num_questions):
+            self.writeQuestionToPDF(c, self.questions[i], i+1)
 
-        doc.build(Story)
+        c.save()
+
+    def writeQuestionToPDF(self, canv, q, q_id):
+        # A question comprises a header, hints and choices
+        # we first decide if there's enough space in the page
+        # to display all of it, if not, we output current page,
+        # and start a new page for the question.
+
+        total_height=self.text_height 
+        for hint in q.hints:
+            total_height += self.hint_height + self.spacing
+        total_height += self.text_height + self.spacing
+        for choice in q.choices:
+            total_height += self.choice_height + self.spacing
+        if total_height > self.page_height - self.bottom_margin:
+            error ('Question does not fit on a single page!')
+            return
+        if not self.y >= total_height + self.bottom_margin:
+            canv.showPage()
+            self.pageInit()
+
+        bal = "../images/balance2.jpg"
+        im = Image(bal, 5.5*inch, 0.75*inch)
+
+        self.writeText2PDF(canv, 'Puzzle ' + str(q_id))
+        for hint in q.hints:
+            im.drawOn(canv, self.x, self.y-self.hint_height)
+            self.y -= self.hint_height
+            self.y -= self.spacing
+        self.writeText2PDF(canv, 'Circle the correct choices')
+
+        c_idx=0
+        for choice in q.choices:
+            self.writeText2PDFRaw(canv, self.x, self.y, str(c_idx+1))
+            self.y -= self.choice_height 
+            self.y -= self.spacing
+            c_idx += 1
+
+    def pageInit(self):
+        self.page_idx+=1
+        self.page_width = letter[0]
+        self.page_height = letter[1]
+        self.text_height=15
+        self.left_margin = 72
+        self.top_margin = 50
+        self.bottom_margin = 50
+        self.spacing = 20
+        self.hint_height=150
+        self.choice_height=40
+        self.x=self.left_margin
+        self.y=self.page_height-self.top_margin
+
+    def writeText2PDF(self, canv, text):
+        if not self.y >= self.bottom_margin + self.text_height:
+            canv.showPage()
+            self.pageInit()
+        canv.drawString(self.x, self.y, text)
+        self.y -= (self.text_height + self.spacing)
+
+    def writeText2PDFRaw(self, canv, x, y, text):
+        canv.drawString(x, y, text)
+
+    def toDifficultyStr(self, level):
+        if level == Difficulty.EASY:
+            return 'Easy'
+        elif level == Difficulty.MEDIUM:
+            return 'Medium'
+        elif level == Difficulty.HARD:
+            return 'Hard'
+        else:
+            return 'Unknown'
 
 
     def uniqueQuestions(self):
@@ -480,8 +639,7 @@ def processArgs(args, mandatory_arg_names):
                 error('Directory path not found: ' + dir_name)
                 sys.exit()
             if os.path.exists(output_name) == True:
-                error('File with the given name already exists. Please specify a different name')
-                sys.exit()
+                warn('File with the given name already exists. Will be overwritten..')
             if os.access(dir_name, os.W_OK) == False:
                 error('File path not writeable: ' + dir_name)
                 sys.exit()
