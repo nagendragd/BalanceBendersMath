@@ -214,19 +214,19 @@ class Question:
         # and verify that the system is consistent
 
         # step 1: determine the number of variables 
-        num_vars = self.makeNumVars(bounds)
+        self.num_vars = self.makeNumVars(bounds)
         # First we create some values for the variables
         self.vars=list()
         
         debug('Variable values of the question')
-        for j in range (0, num_vars):
+        for j in range (0, self.num_vars):
             self.vars.append(random.randint(1, bounds.getMaxVariableValue()))
             debug(self.vars[j])
 
         # for num_vars, how many hints do we need?
         # this would depend on the linear equations we put together of course
         # but for now, assume hints are 1 less than variables
-        num_hints = num_vars - 1
+        num_hints = self.num_vars - 1
 
         i=0
         while (i<num_hints):
@@ -550,6 +550,10 @@ class BB:
         bal = "../images/balance2.jpg"
         im = Image(bal, 5.5*inch, 0.75*inch)
 
+        # assign shapes to coefficients
+        self.assignShapeImages(q.num_vars)
+
+
         self.writeText2PDF(canv, 'Puzzle ' + str(q_id))
         for hint in q.hints:
             im.drawOn(canv, self.x, self.y-self.hint_height)
@@ -559,10 +563,55 @@ class BB:
 
         c_idx=0
         for choice in q.choices:
-            self.writeText2PDFRaw(canv, self.x, self.y, str(c_idx+1))
+            self.writeText2PDFRaw(canv, self.x, self.y - self.choice_height/2, '('+str(c_idx+1)+')')
             self.y -= self.choice_height 
+            self.x += self.choice_number_width
+            self.writeChoice(canv, choice)
             self.y -= self.spacing
+            self.x = self.left_margin
             c_idx += 1
+
+    def assignShapeImages(self, num_vars):
+        self.shapes=list()
+        self.equals_shape=Image("../images/equals.jpg", 0.4*inch, 0.4*inch)
+        for idx in range (0, num_vars):
+            if idx == 0:
+                image = "../images/circle.jpg"
+            elif idx == 1:
+                image = "../images/pentagon.jpg"
+            elif idx == 2:
+                image = "../images/triangle.jpg"
+            elif idx == 3:
+                image = "../images/rectangle.jpg"
+            elif idx == 4:
+                image = "../images/square.jpg"
+            else:
+                error('Unsupported index: No shape available')
+                image = None
+            shape = Image(image, 0.4*inch, 0.4*inch)
+            self.shapes.append(shape)
+
+    def writeChoice(self, canv, choice):
+        var_idx=0
+        for coeff in choice.lhs:
+            if coeff != 0:
+                for i in range (0, coeff):
+                    self.shapes[var_idx].drawOn(canv, self.x, self.y)
+                    self.x += self.shape_width + self.shape_x_gap
+            var_idx+=1
+
+        if choice.op == '=':
+            self.equals_shape.drawOn(canv, self.x, self.y)
+            self.x += self.shape_width + self.shape_x_gap
+
+        var_idx=0
+        for coeff in choice.rhs:
+            if coeff != 0:
+                for i in range (0, coeff):
+                    self.shapes[var_idx].drawOn(canv, self.x, self.y)
+                    self.x += self.shape_width + self.shape_x_gap
+            var_idx+=1
+
 
     def pageInit(self):
         self.page_idx+=1
@@ -575,6 +624,10 @@ class BB:
         self.spacing = 20
         self.hint_height=150
         self.choice_height=40
+        self.choice_number_width=30
+        self.shape_width=29
+        self.shape_height=29
+        self.shape_x_gap=11
         self.x=self.left_margin
         self.y=self.page_height-self.top_margin
 
