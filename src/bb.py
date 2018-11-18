@@ -1,6 +1,7 @@
 import sys
 import os
 import random
+import math
 import numpy as np
 from pathlib import Path
 from enum import Enum
@@ -40,15 +41,15 @@ class Bounds:
     def __init__(self, difficulty):
         self.difficulty = difficulty
         if difficulty == Difficulty.EASY:
-            self.max_variables = 3
-            self.max_variable_value=3
+            self.max_variables = 4
+            self.max_variable_value=4
             self.use_inequality=False
             self.max_coefficient=2
             self.max_constant=10
             self.num_choices=4
         if difficulty == Difficulty.MEDIUM:
             self.max_variables = 5
-            self.max_variable_value=3
+            self.max_variable_value=4
             self.use_inequality=False
             self.max_coefficient=3
             self.max_constant=100
@@ -111,7 +112,7 @@ class Hint:
         if i < len(t_us):
             scale_factor=t_them[i]/t_us[i]
             for i in range (len(t_us)):
-                if t_us[i]==0 and t_us[i]!=0:
+                if t_us[i]==0 and t_them[i]!=0:
                     return False
                 elif t_us[i]!=0:
                     if t_them[i]/t_us[i] != scale_factor:
@@ -239,7 +240,7 @@ class Question:
 
             hint = self.makeHint()
 
-            if hint.validate() and self.unique(self.hints, hint):
+            if hint.validate() and self.isUnique(self.hints, hint):
                 if debug_flag:
                     debug(hint.print())
 
@@ -261,7 +262,7 @@ class Question:
                 choice = self.makeHint()
             else:
                 choice = self.makeChoice()
-            if choice.validateChoice() and self.unique(self.choices, choice) and self.unique(self.hints, choice):
+            if choice.validateChoice() and self.isUnique(self.choices, choice) and self.isUnique(self.hints, choice):
                 if choice.validate():
                     found_one_correct=True
                     correct_star='*'
@@ -296,6 +297,19 @@ class Question:
         coeffs_lhs[var1_idx]=random.randint(1, self.bounds.getMaxCoefficient())
         coeffs_rhs[var2_idx]=random.randint(1, self.bounds.getMaxCoefficient())
         return Hint(self.vars, coeffs_lhs, '=', coeffs_rhs)
+
+    def sameAs(self, q):
+        # Two questions are the same if they have the same hints.
+        # If at least one hint is different, then the questions
+        # are different.
+        for h in self.hints:
+            matched_hint=False
+            for t_h in q.hints:
+                if h.sameAs(t_h):
+                    matched_hint=True
+            if matched_hint == False:
+                return False
+        return True
 
     def makeChoice(self):
         if self.bounds.difficulty == Difficulty.EASY:
@@ -367,7 +381,7 @@ class Question:
         return hint
 
 
-    def unique(self, hint_list, new_hint):
+    def isUnique(self, hint_list, new_hint):
         for hint in hint_list:
             if new_hint.sameAs(hint):
                 return False
@@ -402,7 +416,7 @@ class QuestionDisplay:
         num_rhs = hint.getRHSCoeffTotal()
         # these many shapes have to be drawn.
         # assume we can draw 4 shapes per row on each side of the scale
-        num_shapes_per_row=4
+        num_shapes_per_row=self.max_shapes_per_scale_row
         num_lhs_rows = num_lhs/num_shapes_per_row
         num_rhs_rows = num_rhs/num_shapes_per_row
         max_rows=num_lhs_rows
@@ -467,7 +481,7 @@ class BB:
         i=0
         while i<self.num_questions: 
             q=Question(self.bounds)
-            if q.validate() and self.uniqueQuestions():
+            if q.validate() and self.isUniqueQuestion(q):
                 debug('Generated Question ' + str(i))
                 self.questions.append(q)
                 i+=1
@@ -477,26 +491,35 @@ class BB:
         info('Building PDF ...')
         self.page_idx=-1
 
-        bal = "../images/balance2.jpg"
-        im = Image(bal, 5.5*inch, 0.75*inch)
-        c_shape = "../images/circle.jpg"
-        cir = Image(c_shape, 0.4*inch, 0.4*inch)
-        s_shape = "../images/square.jpg"
-        squ = Image(s_shape, 0.4*inch, 0.4*inch)
-        p_shape = "../images/pentagon.jpg"
-        pen = Image(p_shape, 0.4*inch, 0.4*inch)
+        #bal = "../images/balance2.jpg"
+        #im = Image(bal, 5.5*inch, 0.75*inch)
+        #c_shape = "../images/circle.jpg"
+        #cir = Image(c_shape, 0.4*inch, 0.4*inch)
+        #s_shape = "../images/square.jpg"
+        #squ = Image(s_shape, 0.4*inch, 0.4*inch)
+        #p_shape = "../images/pentagon.jpg"
+        #pen = Image(p_shape, 0.4*inch, 0.4*inch)
+#
+#        c = canvas.Canvas("hello.pdf", pagesize=letter)
+#        c.setFont('Helvetica', 14)
+#        c.drawString(100, 800, 'This is so Cool!')
+#        # left side of the scale
+#        im.drawOn(c, 100, 650)
+#        cir.drawOn(c,130, 704)
+#        squ.drawOn(c,170, 704)
+#        pen.drawOn(c,210, 704)
+#        cir.drawOn(c,130, 733)
+#        squ.drawOn(c,170, 733)
+#        pen.drawOn(c,199, 733)
 
-        c = canvas.Canvas("hello.pdf", pagesize=letter)
-        c.setFont('Helvetica', 14)
-        c.drawString(100, 800, 'This is so Cool!')
-        im.drawOn(c, 100, 650)
-        cir.drawOn(c,130, 704)
-        squ.drawOn(c,170, 704)
-        pen.drawOn(c,210, 704)
-        cir.drawOn(c,130, 733)
-        squ.drawOn(c,170, 733)
-        pen.drawOn(c,199, 733)
-        c.save()
+#        # right side of the scale
+#        cir.drawOn(c,320, 704)
+#        squ.drawOn(c,349, 704)
+#        pen.drawOn(c,465, 704)
+#        cir.drawOn(c,330, 733)
+#        squ.drawOn(c,370, 733)
+#        pen.drawOn(c,399, 733)
+#        c.save()
 
         if Path(self.output_name).exists():
             warn('File: ' + self.output_name + ' already exists')
@@ -519,7 +542,7 @@ class BB:
         c = canvas.Canvas(self.output_name, pagesize=letter)
         c.setFont('Helvetica', 14)
         self.pageInit()
-        t = 'Enjoy your ' + self.toDifficultyStr(self.difficulty) + ' difficulty puzzles'
+        t = 'Enjoy your puzzles! (Difficulty level: ' + self.toDifficultyStr(self.difficulty) + ')' 
 
         self.writeText2PDF(c, t)
 
@@ -534,6 +557,9 @@ class BB:
         # to display all of it, if not, we output current page,
         # and start a new page for the question.
 
+        # assign shapes to coefficients
+        self.assignShapeImages(q.num_vars)
+
         total_height=self.text_height 
         for hint in q.hints:
             total_height += self.hint_height + self.spacing
@@ -547,22 +573,22 @@ class BB:
             canv.showPage()
             self.pageInit()
 
-        bal = "../images/balance2.jpg"
-        im = Image(bal, 5.5*inch, 0.75*inch)
-
-        # assign shapes to coefficients
-        self.assignShapeImages(q.num_vars)
-
-
         self.writeText2PDF(canv, 'Puzzle ' + str(q_id))
         for hint in q.hints:
-            im.drawOn(canv, self.x, self.y-self.hint_height)
-            self.y -= self.hint_height
-            self.y -= self.spacing
+            self.writeHint(canv, hint)
+
+        self.x=self.left_margin
         self.writeText2PDF(canv, 'Circle the correct choices')
 
         c_idx=0
-        for choice in q.choices:
+
+        # first we randomize the order in which
+        # we write our choices. This is done as our
+        # algorithm to generate choices ends up generally making the
+        # last choice as the correct choice. This would be a give away
+        # if we presented them this way for every question.
+        t_choices = self.randomizeChoices(q.choices)
+        for choice in t_choices:
             self.writeText2PDFRaw(canv, self.x, self.y - self.choice_height/2, '('+str(c_idx+1)+')')
             self.y -= self.choice_height 
             self.x += self.choice_number_width
@@ -571,20 +597,91 @@ class BB:
             self.x = self.left_margin
             c_idx += 1
 
+    def randomizeChoices(self, choices):
+        n_c = len(choices)
+        rand_offset = random.randint(1, n_c)
+        out_choices=list()
+        for idx in range (0, n_c):
+            out_choices.append(choices[(idx+rand_offset) % n_c])
+        return out_choices
+
+
+    def writeHint(self, canv, hint):
+        bal = "../images/balance2.jpg"
+        im = Image(bal, 5.5*inch, 0.75*inch)
+        self.x = self.left_margin
+        y=self.y
+        im.drawOn(canv, self.x, self.y-self.hint_height)
+
+        # now place the non-zero coeff shapes on the scales
+        self.placeShapes(canv, hint.lhs)
+        self.x = self.right_scale_x
+        self.placeShapes(canv, hint.rhs)
+
+        self.y = y - self.hint_height
+        self.y -= self.spacing
+
+    def placeShapes(self, canv, coeffs):
+        num_shapes=0
+        for coeff in coeffs:
+            num_shapes += coeff
+
+        num_rows = math.ceil(num_shapes/self.max_shapes_per_scale_row)
+
+        x=self.x
+        y=self.y - self.hint_height + self.scale_height
+        if num_rows == 1:
+            idx=0
+            total_x_space_for_shapes = num_shapes*self.shape_width
+            inter_shape_x_space = int((self.scale_width - total_x_space_for_shapes)/(num_shapes+1))
+            for coeff in coeffs:
+                if coeff > 0:
+                    for j in range (0, coeff):
+                        x += inter_shape_x_space
+                        self.shapes[idx].drawOn(canv, x, y)
+                        x += self.shape_width
+                        
+                idx += 1
+        else:
+            # we stack each shape vertically.
+            # ie, all instances of a shape go vertically up.
+            num_nz_vars=0
+            for coeff in coeffs:
+                if coeff > 0:
+                    num_nz_vars+=1
+            total_x_space_for_shapes = num_nz_vars*self.shape_width
+            inter_shape_x_space = int((self.scale_width - total_x_space_for_shapes)/(num_nz_vars+1))
+            idx=0
+            for coeff in coeffs:
+                if coeff > 0:
+                    x += inter_shape_x_space
+                    for j in range (0, coeff):
+                        # stack them up vertically
+                        self.shapes[idx].drawOn(canv, x, y)
+                        y += self.shape_height
+                    x += self.shape_width
+
+                idx+=1
+
+
     def assignShapeImages(self, num_vars):
         self.shapes=list()
         self.equals_shape=Image("../images/equals.jpg", 0.4*inch, 0.4*inch)
+        rand_offset = random.randint(0, self.max_shapes)
         for idx in range (0, num_vars):
-            if idx == 0:
+            r_idx = (idx + rand_offset) % self.max_shapes
+            if r_idx == 0:
                 image = "../images/circle.jpg"
-            elif idx == 1:
+            elif r_idx == 1:
                 image = "../images/pentagon.jpg"
-            elif idx == 2:
+            elif r_idx == 2:
                 image = "../images/triangle.jpg"
-            elif idx == 3:
-                image = "../images/rectangle.jpg"
-            elif idx == 4:
+            elif r_idx == 3:
+                image = "../images/hexagon.jpg"
+            elif r_idx == 4:
                 image = "../images/square.jpg"
+            elif r_idx == 5:
+                image = "../images/diamond.jpg"
             else:
                 error('Unsupported index: No shape available')
                 image = None
@@ -621,13 +718,19 @@ class BB:
         self.left_margin = 72
         self.top_margin = 50
         self.bottom_margin = 50
-        self.spacing = 20
+        self.spacing = 10
         self.hint_height=150
         self.choice_height=40
         self.choice_number_width=30
         self.shape_width=29
         self.shape_height=29
         self.shape_x_gap=11
+        self.scale_width=174
+        self.scale_height=54
+        self.right_scale_x=295
+        self.max_shapes = 6 # TBD: must be done dynamically by counting shapes in the images/ folder
+        self.max_shapes_per_scale_row=int(self.scale_width/self.shape_width)
+        
         self.x=self.left_margin
         self.y=self.page_height-self.top_margin
 
@@ -652,8 +755,15 @@ class BB:
             return 'Unknown'
 
 
-    def uniqueQuestions(self):
+    def isUniqueQuestion(self, q):
         # verify that we don't have any repeat questions!
+        # However rare this may be, we simply can not allow this.
+        # Unless we want to be left red-faced when a kid calls up
+        # and says she got a set of duplicate puzzles!
+        for ques in self.questions:
+            if q.sameAs(ques):
+                return False
+
         return True
     
 
