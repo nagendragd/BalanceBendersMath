@@ -48,19 +48,19 @@ class Bounds:
             self.max_constant=10
             self.num_choices=4
         if difficulty == Difficulty.MEDIUM:
-            self.max_variables = 5
+            self.max_variables = 6
             self.max_variable_value=4
             self.use_inequality=False
-            self.max_coefficient=3
+            self.max_coefficient=4
             self.max_constant=100
-            self.num_choices=4
+            self.num_choices=6
         if difficulty == Difficulty.HARD:
             self.max_variables = 7
             self.max_variable_value=3
             self.use_inequality=True
             self.max_coefficient=3
             self.max_constant=1000
-            self.num_choices=4
+            self.num_choices=6
     def allowInequality(self):
         return self.use_inequality
     def getMaxVariables(self):
@@ -90,6 +90,16 @@ class Hint:
             t+=i
         return t
 
+    def identical(self, h):
+        for i in range(len(self.lhs)):
+            if self.lhs[i] != h.lhs[i]:
+                return False
+        for i in range(len(self.rhs)):
+            if self.rhs[i] != h.rhs[i]:
+                return False
+
+        return True
+
     def sameAs(self, hint):
         # we compare the two such that lhs1 == lhs2 or lhs1==rhs2
         # and rhs1=rhs2 or rhs1=lhs2 and op1=op2.
@@ -111,11 +121,11 @@ class Hint:
             i+=1
         if i < len(t_us):
             scale_factor=t_them[i]/t_us[i]
-            for i in range (len(t_us)):
-                if t_us[i]==0 and t_them[i]!=0:
+            for j in range (0, len(t_us)):
+                if t_us[j]==0 and t_them[j]!=0:
                     return False
-                elif t_us[i]!=0:
-                    if t_them[i]/t_us[i] != scale_factor:
+                elif t_us[j]!=0:
+                    if t_them[j]/t_us[j] != scale_factor:
                         return False
 
         return True
@@ -248,7 +258,7 @@ class Question:
                 i+=1
 
         # now that we have constructed our hints,
-        # we add 4 choices of which one or more may be correct!
+        # we add choices of which one or more may be correct!
         # The only rules we have are:
         # 1. no hint should repeat as a choice!
         # 2. no two choices must be the same!
@@ -256,23 +266,31 @@ class Question:
         debug('Printing Choices..')
         correct_star=''
         nc=0
-        found_one_correct=False
+        if self.num_choices == 4:
+            need_num_correct = 1
+        else:
+            need_num_correct = 2
+        print ('need ' + str(need_num_correct) + ' to be correct')
+        found_num_correct=0
         while (nc < self.num_choices): 
-            if (nc==self.num_choices-1) and not found_one_correct:
+            add_choice=False
+            if (nc==self.num_choices-need_num_correct) and (found_num_correct < need_num_correct):
                 choice = self.makeHint()
             else:
                 choice = self.makeChoice()
-            if choice.validateChoice() and self.isUnique(self.choices, choice) and self.isUnique(self.hints, choice):
+            if choice.validateChoice() and self.isUnique(self.choices, choice) and not self.isIdentical(self.hints, choice):
                 if choice.validate():
-                    found_one_correct=True
                     correct_star='*'
+                    found_this_correct=True
                 else:
                     correct_star=''
-                if nc == self.num_choices-1:
-                    if found_one_correct:
+                    found_this_correct=False
+                if nc >= self.num_choices-need_num_correct:
+                    if found_this_correct:
                         self.choices.append(choice)
                         if debug_flag:
                             debug(correct_star+choice.print())
+                        found_num_correct += 1
                         nc+=1
                 else:
                     self.choices.append(choice)
@@ -302,6 +320,11 @@ class Question:
         # Two questions are the same if they have the same hints.
         # If at least one hint is different, then the questions
         # are different.
+
+        # first we check if the two questions have the same number of variables
+        # if not, they are different.
+        if len(self.hints[0].lhs) != len(q.hints[0].lhs):
+            return False
         for h in self.hints:
             matched_hint=False
             for t_h in q.hints:
@@ -314,11 +337,15 @@ class Question:
     def makeChoice(self):
         if self.bounds.difficulty == Difficulty.EASY:
             return self.makeChoiceEasy()
+        elif self.bounds.difficulty == Difficulty.MEDIUM:
+            return self.makeChoiceEasy()
         else:
             return self.makeHintGeneric()
     
     def makeHint(self):
         if self.bounds.difficulty == Difficulty.EASY:
+            return self.makeHintEasy()
+        elif self.bounds.difficulty == Difficulty.MEDIUM:
             return self.makeHintEasy()
         else:
             return self.makeHintGeneric()
@@ -343,10 +370,24 @@ class Question:
 
         coeffs_lhs[var1_idx]=self.vars[var2_idx]
         coeffs_rhs[var2_idx]=self.vars[var1_idx]
+
+        add_equal_extra = random.randint(0,2)
+        add_just_one = random.randint(0,2)
+        if add_equal_extra==1:
+            for i in range(num_vars):
+                if coeffs_rhs[i] == 0 and coeffs_lhs[i] == 0:
+                    coeffs_rhs[i] = coeffs_lhs[i] = random.randint(1,self.bounds.getMaxCoefficient())
+                    if add_just_one == 1:
+                        break
         return Hint(self.vars, coeffs_lhs, '=', coeffs_rhs)
         
 
     def makeHintGeneric(self):
+        # We have the variable values with us.
+        # We need to get a set of coefficient values to create
+        # balanced equations that satisfy lhs op rhs.
+        #
+
         coeffs_lhs=list()
         lhs_sum=0
         num_vars = len(self.vars)
@@ -356,11 +397,11 @@ class Question:
         if self.bounds.allowInequality():
             op_r = random.randint(0,3)
             if op_r == 0:
-                op = '='
-            if op_r == 1:
-                op = '>'
-            if op_r == 2:
                 op = '<'
+            elif op_r == 1:
+                op = '>'
+            else:
+                op = '='
         else:
             op = '='
 
@@ -387,6 +428,12 @@ class Question:
                 return False
         return True
 
+    def isIdentical(self, hint_list, new_hint):
+        for hint in hint_list:
+            if new_hint.identical(hint):
+                return True
+        return False
+
     def makeNumVars(self, bounds):
         nv = bounds.getMaxVariables()
         if nv <= 3:
@@ -399,58 +446,6 @@ class Question:
         self.choices.append(choice)
     def validate(self):
         return True
-
-class QuestionDisplay:
-    def __init__(self, question):
-        self.height = self.questionHeight(question)
-
-    def shapeHeight(self):
-        return 29 # this should be better handled based on the shape images
-    def shapeWidth(self):
-        return 29 # this should be better handled based on the shape images
-    def scaleHeight(self):
-        return 90
-    def hintHeight(self, hint):
-        height=0
-        num_lhs = hint.getLHSCoeffTotal()
-        num_rhs = hint.getRHSCoeffTotal()
-        # these many shapes have to be drawn.
-        # assume we can draw 4 shapes per row on each side of the scale
-        num_shapes_per_row=self.max_shapes_per_scale_row
-        num_lhs_rows = num_lhs/num_shapes_per_row
-        num_rhs_rows = num_rhs/num_shapes_per_row
-        max_rows=num_lhs_rows
-        if max_rows<num_rhs_rows:
-            max_rows=num_rhs_rows
-        height += max_rows * self.shapeHeight()
-
-        # add base scale height
-        height += self.scaleHeight()
-
-    def textHeight(self):
-        return 20
-
-    def bufferHeight(self):
-        return 20
-
-    def questionHeight(self, question):
-        # question height depends on how many rows of shapes
-        # have to be shown.
-        # Question comprises of hints + choices
-        # we use a box model for each hint and each choice. 
-        # we can optimize later and trim white space
-        height=0
-        height += self.textHeight()
-        height += self.bufferHeight()
-        for hint in question.hints:
-            height += self.hintHeight(self, hint)
-            height += self.bufferHeight()
-        return height
-
-    def getTextYOffset(self):
-        return self.height - self.textHeight()
-
-
 
 class BB:
     def __init__(self, difficulty, output_name):
@@ -621,6 +616,9 @@ class BB:
         self.y = y - self.hint_height
         self.y -= self.spacing
 
+    def scaleHeight(self):
+        return self.scale_height
+
     def placeShapes(self, canv, coeffs):
         num_shapes=0
         for coeff in coeffs:
@@ -629,7 +627,7 @@ class BB:
         num_rows = math.ceil(num_shapes/self.max_shapes_per_scale_row)
 
         x=self.x
-        y=self.y - self.hint_height + self.scale_height
+        y=self.y - self.hint_height + self.scaleHeight()
         if num_rows == 1:
             idx=0
             total_x_space_for_shapes = num_shapes*self.shape_width
@@ -655,6 +653,7 @@ class BB:
             for coeff in coeffs:
                 if coeff > 0:
                     x += inter_shape_x_space
+                    y=self.y - self.hint_height + self.scaleHeight()
                     for j in range (0, coeff):
                         # stack them up vertically
                         self.shapes[idx].drawOn(canv, x, y)
@@ -715,19 +714,19 @@ class BB:
         self.page_width = letter[0]
         self.page_height = letter[1]
         self.text_height=15
-        self.left_margin = 72
-        self.top_margin = 50
-        self.bottom_margin = 50
-        self.spacing = 10
+        self.left_margin = 50
+        self.top_margin = 30
+        self.bottom_margin = 30
+        self.spacing = 5
         self.hint_height=150
         self.choice_height=40
         self.choice_number_width=30
         self.shape_width=29
         self.shape_height=29
-        self.shape_x_gap=11
+        self.shape_x_gap=5
         self.scale_width=174
         self.scale_height=54
-        self.right_scale_x=295
+        self.right_scale_x=273
         self.max_shapes = 6 # TBD: must be done dynamically by counting shapes in the images/ folder
         self.max_shapes_per_scale_row=int(self.scale_width/self.shape_width)
         
@@ -761,7 +760,7 @@ class BB:
         # Unless we want to be left red-faced when a kid calls up
         # and says she got a set of duplicate puzzles!
         for ques in self.questions:
-            if q.sameAs(ques):
+            if ques.sameAs(q):
                 return False
 
         return True
