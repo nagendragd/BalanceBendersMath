@@ -41,7 +41,7 @@ class Bounds:
     def __init__(self, difficulty):
         self.difficulty = difficulty
         if difficulty == Difficulty.EASY:
-            self.max_variables = 4
+            self.max_variables = 6
             self.max_variable_value=4
             self.use_inequality=False
             self.max_coefficient=2
@@ -51,9 +51,9 @@ class Bounds:
             self.max_variables = 6
             self.max_variable_value=4
             self.use_inequality=False
-            self.max_coefficient=4
+            self.max_coefficient=3
             self.max_constant=100
-            self.num_choices=6
+            self.num_choices=4
         if difficulty == Difficulty.HARD:
             self.max_variables = 7
             self.max_variable_value=3
@@ -74,10 +74,15 @@ class Bounds:
 
 class Hint:
     def __init__(self, vars, lhs, op, rhs):
-        self.vars=vars
-        self.lhs=lhs
+        self.correct_choice=False
+        self.vars=list()
+        self.lhs=list()
+        self.rhs=list()
+        for i in range(len(vars)):
+            self.vars.append(vars[i])
+            self.lhs.append(lhs[i])
+            self.rhs.append(rhs[i])
         self.op=op
-        self.rhs=rhs
         self.fail=False
     def getLHSCoeffTotal(self):
         t=0
@@ -108,6 +113,10 @@ class Hint:
         # Our procedure is bring everything over to the LHS 
         # and then to check if they are equal to a scale factor.
 
+        # first silly check: the num variables are the same in both
+        if len(self.lhs) != len(hint.lhs):
+            return False
+
         t_us = list()
         for i in range(len(self.lhs)):
             t_us.append(self.lhs[i]-self.rhs[i])
@@ -117,7 +126,7 @@ class Hint:
 
         # first non-zero denominator determines scale factor
         i=0
-        while t_us[i] == 0 and i < len(t_us):
+        while (i < len(t_us)) and (t_us[i] == 0): 
             i+=1
         if i < len(t_us):
             scale_factor=t_them[i]/t_us[i]
@@ -199,6 +208,7 @@ class Hint:
                 nve=True
         if (not pve) or (not nve):
             self.fail=True
+            return False
 
         res = self.validateChoice()
         self.fail = not res
@@ -232,7 +242,7 @@ class Question:
         debug('Variable values of the question')
         for j in range (0, self.num_vars):
             self.vars.append(random.randint(1, bounds.getMaxVariableValue()))
-            debug(self.vars[j])
+            debug('v'+str(j) + ': ' + str(self.vars[j]))
 
         # for num_vars, how many hints do we need?
         # this would depend on the linear equations we put together of course
@@ -248,14 +258,22 @@ class Question:
             # depict this with a balance.
             # Each <LE> can have upto num_vars with coefficients over the bounds
 
-            hint = self.makeHint()
+            t_hints = self.makeHints()
 
-            if hint.validate() and self.isUnique(self.hints, hint):
-                if debug_flag:
-                    debug(hint.print())
+            for j in range(len(t_hints)):
+                # pick a random hint from the generated set
+                if len(t_hints) > 1:
+                    idx = random.randint(0, len(t_hints)-1)
+                else:
+                    idx = 0
+                chosen_hint = t_hints[idx]
+                if chosen_hint.validate() and self.isUnique(self.hints, chosen_hint):
+                    if debug_flag:
+                        debug(chosen_hint.print())
 
-                self.addHint(hint)
-                i+=1
+                    self.addHint(chosen_hint)
+                    i+=1
+                    break
 
         # now that we have constructed our hints,
         # we add choices of which one or more may be correct!
@@ -270,18 +288,20 @@ class Question:
             need_num_correct = 1
         else:
             need_num_correct = 2
-        print ('need ' + str(need_num_correct) + ' to be correct')
         found_num_correct=0
         while (nc < self.num_choices): 
             add_choice=False
             if (nc==self.num_choices-need_num_correct) and (found_num_correct < need_num_correct):
-                choice = self.makeHint()
+                choices = self.makeHints()
+                if len(choices):
+                    choice = choices[0]
             else:
                 choice = self.makeChoice()
             if choice.validateChoice() and self.isUnique(self.choices, choice) and not self.isIdentical(self.hints, choice):
                 if choice.validate():
                     correct_star='*'
                     found_this_correct=True
+                    choice.correct_choice = True
                 else:
                     correct_star=''
                     found_this_correct=False
@@ -297,6 +317,9 @@ class Question:
                     if debug_flag:
                         debug(correct_star+choice.print())
                     nc+=1
+
+    def makeChoiceGeneric(self):
+        return self.makeChoiceEasy()
 
     def makeChoiceEasy(self):
         # Easy choices are basically one variable each
@@ -340,15 +363,17 @@ class Question:
         elif self.bounds.difficulty == Difficulty.MEDIUM:
             return self.makeChoiceEasy()
         else:
-            return self.makeHintGeneric()
+            return self.makeChoiceGeneric()
     
-    def makeHint(self):
+    def makeHints(self):
+        hint_list=list()
         if self.bounds.difficulty == Difficulty.EASY:
-            return self.makeHintEasy()
+            hint_list.append(self.makeHintEasy())
         elif self.bounds.difficulty == Difficulty.MEDIUM:
-            return self.makeHintEasy()
+            return self.makeHintsMedium()
         else:
-            return self.makeHintGeneric()
+            hint_list.append(self.makeHintGeneric())
+        return hint_list
 
     def makeHintEasy(self):
         # Easy hints are basically one variable each
@@ -380,6 +405,62 @@ class Question:
                     if add_just_one == 1:
                         break
         return Hint(self.vars, coeffs_lhs, '=', coeffs_rhs)
+        
+    def makeHintsMedium(self):
+        hint_list = list()
+        num_vars = len(self.vars)
+        coeffs_lhs=list()
+        coeffs_rhs=list()
+
+        for i in range(num_vars):
+            coeffs_lhs.append(0)
+            coeffs_rhs.append(0)
+
+        # search the space of coefficients to determine equalities
+        # of the kind: x + 3w = 2y + 2z for example
+
+        num_solutions = 0
+        while num_solutions < 2:
+            for i in range(num_vars):
+                coeffs_rhs[i]=0
+            for i in range (num_vars):
+                coeffs_lhs[i] = random.randint(0,self.bounds.getMaxCoefficient())
+            # see if we can match this on the RHS side
+            valid_rhs_found = True
+            update_coeff_idx=num_vars - 1
+            while valid_rhs_found:
+                if coeffs_rhs[update_coeff_idx] < self.bounds.getMaxCoefficient():
+                    coeffs_rhs[update_coeff_idx] += 1
+                else:
+                    valid_rhs_found = False
+                    while (update_coeff_idx > -1) and (not valid_rhs_found):
+                        if coeffs_rhs[update_coeff_idx] == self.bounds.getMaxCoefficient():
+                            update_coeff_idx -= 1
+                        else:
+                            # we can increase this coefficient by one
+                            coeffs_rhs[update_coeff_idx] += 1
+                            # reset all coeffs to the "right" back to 0
+                            for i in range (update_coeff_idx+1, num_vars):
+                                coeffs_rhs[i] = 0
+                            update_coeff_idx = num_vars - 1
+                            valid_rhs_found = True
+                if valid_rhs_found:
+                    # see if this satisfies: lhs Op rhs
+                    l_sum = 0
+                    r_sum = 0
+                    for idx in range (len(coeffs_lhs)):
+                        l_sum += coeffs_lhs[idx] * self.vars[idx]
+                    for idx in range (len(coeffs_rhs)):
+                        r_sum += coeffs_rhs[idx] * self.vars[idx]
+                    if l_sum == r_sum:
+                        hint = Hint(self.vars, coeffs_lhs, '=', coeffs_rhs)
+                        hint_list.append(hint)
+                        num_solutions += 1
+                else:
+                    # no solution found
+                    break
+                
+        return hint_list
         
 
     def makeHintGeneric(self):
@@ -464,9 +545,9 @@ class BB:
         if difficulty == Difficulty.EASY:
             return 4
         if difficulty == Difficulty.MEDIUM:
-            return 8
+            return 6
         if difficulty == Difficulty.HARD:
-            return 12
+            return 10
 
     
     def assemble(self):
@@ -544,6 +625,17 @@ class BB:
         for i in range (0, self.num_questions):
             self.writeQuestionToPDF(c, self.questions[i], i+1)
 
+        c.showPage()
+        self.writeText2PDF(c, 'Answer key:')
+        for i in range (0, self.num_questions):
+            s = 'Q'+str(i+1)+': '
+            for j in range (0, len(self.questions[i].displayed_choices)):
+                choice = self.questions[i].displayed_choices[j]
+                if choice.correct_choice:
+                    s += str(j+1) + ', '
+            self.writeText2PDF(c, s)
+
+        c.showPage()
         c.save()
 
     def writeQuestionToPDF(self, canv, q, q_id):
@@ -555,6 +647,7 @@ class BB:
         # assign shapes to coefficients
         self.assignShapeImages(q.num_vars)
 
+        use_extra_page = False
         total_height=self.text_height 
         for hint in q.hints:
             total_height += self.hint_height + self.spacing
@@ -562,15 +655,19 @@ class BB:
         for choice in q.choices:
             total_height += self.choice_height + self.spacing
         if total_height > self.page_height - self.bottom_margin:
-            error ('Question does not fit on a single page!')
-            return
-        if not self.y >= total_height + self.bottom_margin:
-            canv.showPage()
-            self.pageInit()
+            use_extra_page = True
+            warn ('Question does not fit on a single page!')
+            warn ('Choices will be displayed on the page after the puzzle hints page.')
 
         self.writeText2PDF(canv, 'Puzzle ' + str(q_id))
         for hint in q.hints:
             self.writeHint(canv, hint)
+            if self.y < (self.hint_height + self.bottom_margin):
+                canv.showPage()
+                self.pageInit()
+        #if use_extra_page: 
+        #    canv.showPage()
+        #    self.pageInit()
 
         self.x=self.left_margin
         self.writeText2PDF(canv, 'Circle the correct choices')
@@ -583,6 +680,8 @@ class BB:
         # last choice as the correct choice. This would be a give away
         # if we presented them this way for every question.
         t_choices = self.randomizeChoices(q.choices)
+
+        q.displayed_choices = t_choices
         for choice in t_choices:
             self.writeText2PDFRaw(canv, self.x, self.y - self.choice_height/2, '('+str(c_idx+1)+')')
             self.y -= self.choice_height 
@@ -590,8 +689,16 @@ class BB:
             self.writeChoice(canv, choice)
             self.y -= self.spacing
             self.x = self.left_margin
+
+            if self.y <= (self.choice_height + self.bottom_margin):
+                canv.showPage()
+                self.pageInit()
+
             c_idx += 1
 
+        canv.showPage()
+        self.pageInit()
+        q.displayed_choices = t_choices
     def randomizeChoices(self, choices):
         n_c = len(choices)
         rand_offset = random.randint(1, n_c)
@@ -701,11 +808,16 @@ class BB:
             self.x += self.shape_width + self.shape_x_gap
 
         var_idx=0
+        first_right_shape_x = self.x
         for coeff in choice.rhs:
             if coeff != 0:
                 for i in range (0, coeff):
                     self.shapes[var_idx].drawOn(canv, self.x, self.y)
                     self.x += self.shape_width + self.shape_x_gap
+                    if self.x >= self.page_width - self.right_margin:
+                        # need a new row to write the rest of the shapes
+                        self.y -= (self.shape_height + self.spacing)
+                        self.x  = first_right_shape_x
             var_idx+=1
 
 
@@ -716,10 +828,10 @@ class BB:
         self.text_height=15
         self.left_margin = 50
         self.top_margin = 30
-        self.bottom_margin = 30
+        self.bottom_margin = 20
         self.spacing = 5
         self.hint_height=150
-        self.choice_height=40
+        self.choice_height=35
         self.choice_number_width=30
         self.shape_width=29
         self.shape_height=29
@@ -727,6 +839,7 @@ class BB:
         self.scale_width=174
         self.scale_height=54
         self.right_scale_x=273
+        self.right_margin = self.shape_width
         self.max_shapes = 6 # TBD: must be done dynamically by counting shapes in the images/ folder
         self.max_shapes_per_scale_row=int(self.scale_width/self.shape_width)
         
