@@ -419,12 +419,28 @@ class Question:
         # search the space of coefficients to determine equalities
         # of the kind: x + 3w = 2y + 2z for example
 
+        # we favor smaller equations over larger ones
+
         num_solutions = 0
+        try_lhs_num_vars = 2
+        num_tried=0
         while num_solutions < 2:
+            num_tried += 1
+            if num_tried > 128:
+                if try_lhs_num_vars < num_vars:
+                    try_lhs_num_vars += 1
+                    num_tried = 1
             for i in range(num_vars):
                 coeffs_rhs[i]=0
+            try_nz=0
             for i in range (num_vars):
-                coeffs_lhs[i] = random.randint(0,self.bounds.getMaxCoefficient())
+                if try_nz < try_lhs_num_vars:
+                    coeffs_lhs[i] = random.randint(0,self.bounds.getMaxCoefficient())
+                else:
+                    coeffs_lhs[i] = 0
+                if coeffs_lhs[i] != 0:
+                    try_nz += 1
+
             # see if we can match this on the RHS side
             valid_rhs_found = True
             update_coeff_idx=num_vars - 1
