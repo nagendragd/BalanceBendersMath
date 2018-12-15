@@ -244,6 +244,16 @@ class Question:
             self.vars.append(random.randint(1, bounds.getMaxVariableValue()))
             debug('v'+str(j) + ': ' + str(self.vars[j]))
 
+        # we discovered one bug wherein some of the answer choices
+        # used variables that had not been displayed in hints.
+        # this was basically unsolvable!
+        # now we add a data structure to keep track of which variables
+        # have actually showed up on one or more hints.
+        # Our answer choices should not use any other variables
+        self.used_vars=list()
+        for j in range (0, self.num_vars):
+            self.used_vars.append(False)
+
         # for num_vars, how many hints do we need?
         # this would depend on the linear equations we put together of course
         # but for now, assume hints are 1 less than variables
@@ -539,9 +549,19 @@ class Question:
 
     def addHint(self, hint):
         self.hints.append(hint)
+        # we also update our tracker of which variables
+        # have appeared amongst our hints
+        for j in range (0, len(hint.lhs)):
+            if hint.lhs[j]>0 or hint.rhs[j]>0:
+                self.used_vars[j] = True
+
     def addChoice(self, choice):
         self.choices.append(choice)
     def validate(self):
+        # check that all variables have been covered
+        for i in range (0, self.num_vars):
+            if self.used_vars[i] == False:
+                return False
         return True
 
 class BB:
